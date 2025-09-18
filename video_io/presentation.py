@@ -34,7 +34,7 @@ class Presentation:
             "fontScale": 0.5,
             "color": (255, 255, 255),  # 白色文本
             "thickness": 1,
-            "line_type": cv2.LINE_AA
+            "lineType": cv2.LINE_AA
         }
 
     def generate_visualized_video(self, frame_data_list: List[FrameData], joint_data_list: List[JointData]):

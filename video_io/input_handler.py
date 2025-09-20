@@ -142,7 +142,8 @@ class InputHandler:
                     
             # 验证数据量
             print(f"收集到{len(frame_data_list)}帧原始数据，{len(joint_data_list)}帧关节数据")
-        
+            #关闭opencv
+            cv2.destroyAllWindows()
             # 生成输出文件
             if frame_data_list and joint_data_list:
                 presentation.generate_output(frame_data_list, joint_data_list)
@@ -155,5 +156,5 @@ class InputHandler:
             import traceback
             traceback.print_exc()
         finally:
-            cv2.destroyAllWindows()
+            
             self.stop_processing()

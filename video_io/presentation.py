@@ -123,65 +123,103 @@ class Presentation:
 
         # 绘制左肘角度
         if joint_data.left_elbow_angle is not None:
-            text = f"Left Elbow: {joint_data.left_elbow_angle:.1f}°"
+            text = f"Left Elbow: {joint_data.left_elbow_angle:.1f}ang"
             cv2.putText(frame, text, text_pos, **self.text_config)
-            text_pos = (text_pos[0], text_pos[1] + line_spacing)  # 修复：正确更新y坐标
+            text_pos = (text_pos[0], text_pos[1] + line_spacing) 
 
         # 绘制右肘角度
         if joint_data.right_elbow_angle is not None:
-            text = f"Right Elbow: {joint_data.right_elbow_angle:.1f}°"
+            text = f"Right Elbow: {joint_data.right_elbow_angle:.1f}ang"
             cv2.putText(frame, text, text_pos, **self.text_config)
             text_pos = (text_pos[0], text_pos[1] + line_spacing)
 
         # 绘制左膝角度
         if joint_data.left_knee_angle is not None:
-            text = f"Left Knee: {joint_data.left_knee_angle:.1f}°"
+            text = f"Left Knee: {joint_data.left_knee_angle:.1f}ang"
             cv2.putText(frame, text, text_pos, **self.text_config)
             text_pos = (text_pos[0], text_pos[1] + line_spacing)
 
         # 绘制右膝角度
         if joint_data.right_knee_angle is not None:
-            text = f"Right Knee: {joint_data.right_knee_angle:.1f}°"
+            text = f"Right Knee: {joint_data.right_knee_angle:.1f}ang"
+            cv2.putText(frame, text, text_pos, **self.text_config)
+            text_pos = (text_pos[0], text_pos[1] + line_spacing)
+
+            # 绘制左肘角速度
+        if joint_data.left_elbow_velocity is not None:
+            # 格式化为一位小数，添加单位°/s
+            text = f"L Elbow Vel: {joint_data.left_elbow_velocity:.1f}ang/s"  
+            cv2.putText(frame, text, text_pos, **self.text_config)
+            # 更新到下一行位置
+            text_pos = (text_pos[0], text_pos[1] + line_spacing)  
+
+        # 绘制右肘角速度
+        if joint_data.right_elbow_velocity is not None:
+            text = f"R Elbow Vel: {joint_data.right_elbow_velocity:.1f}ang/s"
+            cv2.putText(frame, text, text_pos, **self.text_config)
+            text_pos = (text_pos[0], text_pos[1] + line_spacing)
+
+        # 绘制左膝角速度
+        if joint_data.left_knee_velocity is not None:
+            text = f"L Knee Vel: {joint_data.left_knee_velocity:.1f}ang/s"
+            cv2.putText(frame, text, text_pos, **self.text_config)
+            text_pos = (text_pos[0], text_pos[1] + line_spacing)
+
+        # 绘制右膝角速度
+        if joint_data.right_knee_velocity is not None:
+            text = f"R Knee Vel: {joint_data.right_knee_velocity:.1f}ang/s"
             cv2.putText(frame, text, text_pos, **self.text_config)
             
     def calculate_motion_statistics(self, frame_data_list: List[FrameData], joint_data_list: List[JointData]):
-        """计算运动统计信息"""
+        """计算包括最大角速度在内的运动统计信息"""
         if not frame_data_list or not joint_data_list:
             return None
-            
+        
         # 计算运动时长（秒）
         start_time = frame_data_list[0].timestamp
         end_time = frame_data_list[-1].timestamp
         duration = end_time - start_time
-        
-        # 计算最大关节角度
-        max_angles = {
-            "left_elbow": 0,
-            "right_elbow": 0,
-            "left_knee": 0,
-            "right_knee": 0
+    
+        # 初始化最大关节角速度（使用负无穷确保任何有效值都比它大）
+        max_velocities = {
+            "left_elbow": float('-inf'),
+            "right_elbow": float('-inf'),
+            "left_knee": float('-inf'),
+            "right_knee": float('-inf')
         }
-        
+    
+        # 遍历所有关节数据，过滤无效值（None）
         for joint_data in joint_data_list:
-            if joint_data.left_elbow_angle and joint_data.left_elbow_angle > max_angles["left_elbow"]:
-                max_angles["left_elbow"] = joint_data.left_elbow_angle
-                
-            if joint_data.right_elbow_angle and joint_data.right_elbow_angle > max_angles["right_elbow"]:
-                max_angles["right_elbow"] = joint_data.right_elbow_angle
-                
-            if joint_data.left_knee_angle and joint_data.left_knee_angle > max_angles["left_knee"]:
-                max_angles["left_knee"] = joint_data.left_knee_angle
-                
-            if joint_data.right_knee_angle and joint_data.right_knee_angle > max_angles["right_knee"]:
-                max_angles["right_knee"] = joint_data.right_knee_angle
-        
+            # 更新左肘角速度（仅处理有效值）
+            if joint_data.left_elbow_velocity is not None:
+                if joint_data.left_elbow_velocity > max_velocities["left_elbow"]:
+                    max_velocities["left_elbow"] = joint_data.left_elbow_velocity
+            # 更新右肘角速度
+            if joint_data.right_elbow_velocity is not None:
+                if joint_data.right_elbow_velocity > max_velocities["right_elbow"]:
+                    max_velocities["right_elbow"] = joint_data.right_elbow_velocity
+            # 更新左膝角速度
+            if joint_data.left_knee_velocity is not None:
+                if joint_data.left_knee_velocity > max_velocities["left_knee"]:
+                    max_velocities["left_knee"] = joint_data.left_knee_velocity
+            # 更新右膝角速度
+            if joint_data.right_knee_velocity is not None:
+                if joint_data.right_knee_velocity > max_velocities["right_knee"]:
+                    max_velocities["right_knee"] = joint_data.right_knee_velocity
+    
+        # 处理无有效值的情况（将负无穷设为0.0，避免显示None）
+        for joint in max_velocities:
+            if max_velocities[joint] == float('-inf'):
+                max_velocities[joint] = 0.0
+    
+        # 返回统计结果（仅保留角速度，移除角度相关字段）
         return {
             "duration": duration,
-            "max_angles": max_angles
+            "max_velocities": max_velocities
         }
         
     def show_results_window(self, statistics):
-        """显示结果窗口"""
+        """显示结果窗口（仅显示最大关节角速度）"""
         print("正在显示结果窗口...")
         if not statistics:
             print("无统计信息可显示")
@@ -203,35 +241,71 @@ class Presentation:
             title_label = tk.Label(root, text="运动分析结果", font=("Arial", 16, "bold"))
             title_label.pack(pady=20)
         
-            # 添加运动时长
+            # 添加运动时长（保留，用户可能需要）
             duration_label = tk.Label(
                 root, 
                 text=f"运动时长: {statistics['duration']:.2f} 秒", 
                 font=("Arial", 14)
-        )
+            )
             duration_label.pack(pady=10)
         
-        # 添加最大角度标题
-            angles_label = tk.Label(root, text="最大关节角度:", font=("Arial", 12, "bold"))
-            angles_label.pack(pady=(20, 10))
+            # ==================== 新增：最大关节角速度显示 ====================
+            # 添加角速度标题
+            velocity_title = tk.Label(
+                root, 
+                text="最大关节角速度", 
+                font=("Arial", 12, "bold")
+            )
+            velocity_title.pack(pady=(20, 10))  # 顶部间距20，底部间距10
         
-        # 创建框架用于显示角度
-            angles_frame = tk.Frame(root)
-            angles_frame.pack(pady=10)
+            # 创建框架用于布局角速度数据（两行两列）
+            velocity_frame = tk.Frame(root)
+            velocity_frame.pack(pady=10)
         
-        # 添加各个关节的最大角度
-            angles = statistics["max_angles"]
-            tk.Label(angles_frame, text=f"左肘: {angles['left_elbow']:.1f}°", font=("Arial", 11)).grid(row=0, column=0, padx=10, pady=5, sticky="w")
-            tk.Label(angles_frame, text=f"右肘: {angles['right_elbow']:.1f}°", font=("Arial", 11)).grid(row=0, column=1, padx=10, pady=5, sticky="w")
-            tk.Label(angles_frame, text=f"左膝: {angles['left_knee']:.1f}°", font=("Arial", 11)).grid(row=1, column=0, padx=10, pady=5, sticky="w")
-            tk.Label(angles_frame, text=f"右膝: {angles['right_knee']:.1f}°", font=("Arial", 11)).grid(row=1, column=1, padx=10, pady=5, sticky="w")
+            # 获取最大角速度数据（默认空字典，避免KeyError）
+            max_velocities = statistics.get("max_velocities", {})
         
-        # 添加确定按钮
+            # 添加左肘角速度（第一行第一列）
+            left_elbow_vel = tk.Label(
+                velocity_frame,
+                text=f"左肘: {max_velocities.get('left_elbow', 0.0):.1f} °/s",
+                font=("Arial", 11)
+            )
+            left_elbow_vel.grid(row=0, column=0, padx=10, pady=5, sticky="w")
+        
+            # 添加右肘角速度（第一行第二列）
+            right_elbow_vel = tk.Label(
+                velocity_frame,
+                text=f"右肘: {max_velocities.get('right_elbow', 0.0):.1f} °/s",
+                font=("Arial", 11)
+            )
+            right_elbow_vel.grid(row=0, column=1, padx=10, pady=5, sticky="w")
+        
+            # 添加左膝角速度（第二行第一列）
+            left_knee_vel = tk.Label(
+                velocity_frame,
+                text=f"左膝: {max_velocities.get('left_knee', 0.0):.1f} °/s",
+                font=("Arial", 11)
+            )
+            left_knee_vel.grid(row=1, column=0, padx=10, pady=5, sticky="w")
+        
+            # 添加右膝角速度（第二行第二列）
+            right_knee_vel = tk.Label(
+                velocity_frame,
+                text=f"右膝: {max_velocities.get('right_knee', 0.0):.1f} °/s",
+                font=("Arial", 11)
+            )
+            right_knee_vel.grid(row=1, column=1, padx=10, pady=5, sticky="w")
+            # =============================================================
+        
+            # 添加确定按钮（保持不变）
             ok_button = tk.Button(root, text="确定", command=root.destroy, width=10, height=2)
             ok_button.pack(pady=20)
+        
             print("结果窗口已创建，开始主循环")
             root.mainloop()
             print("结果窗口已关闭")
+        
         except Exception as e:
             print(f"显示结果窗口时出错: {str(e)}")
             import traceback
@@ -247,16 +321,12 @@ class Presentation:
             
             # 计算统计信息并显示结果窗口
             statistics = self.calculate_motion_statistics(frame_data_list, joint_data_list)
-            print(f"统计信息: {statistics}")  # 添加调试信息
+            print(f"统计信息: {statistics}")  # 调试信息
         
             if statistics:
                 print("准备显示结果窗口...")
-                # 使用 after 方法确保在主线程中显示窗口
-                if tk._default_root:  # 检查是否已有Tk实例
-                    tk._default_root.after(100, lambda: self.show_results_window(statistics))
-                else:
-                    # 如果没有Tk实例，直接创建
-                    self.show_results_window(statistics)
+                # 直接显示结果窗口（阻塞主线程，直到窗口关闭）
+                self.show_results_window(statistics)
             else:
                 print("无统计信息可显示")
             print("所有输出生成完成！")

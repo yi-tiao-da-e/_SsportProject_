@@ -1,338 +1,301 @@
 import cv2
 import pandas as pd
 import os
-from typing import List
-from dataclasses import asdict
+from typing import List, Optional, Dict
+from dataclasses import dataclass, field, asdict  # 新增：导入 asdict
 from config.settings import app_config
-from video_io.data_classes import FrameData  # 从独立文件导入FrameData
-from recog.data_classes import JointData  # 从独立文件导入JointData
+from video_io.data_classes import FrameData
+from recog.data_classes import JointData
 import tkinter as tk
 from tkinter import messagebox
+@dataclass
 class Presentation:
-    """负责生成可视化视频与数据表格的模块"""
-    def __init__(self):
-        # 从配置中获取输出路径
-        self.output_video_path = app_config.video.output_video_path
-        self.output_csv_path = app_config.video.output_csv_path
-        # 确保输出目录存在（递归创建）
+    """负责生成可视化视频、CSV表格及结果窗口的模块（`dataclass`风格）"""
+    # ------------------------------
+    # 从全局配置中获取输出路径（无需硬编码）
+    # ------------------------------
+    output_video_path: str = field(
+        default_factory=lambda: app_config.video.output_video_path,
+        metadata={"描述": "可视化视频输出路径"}
+    )
+    output_csv_path: str = field(
+        default_factory=lambda: app_config.video.output_csv_path,
+        metadata={"描述": "关节数据CSV输出路径"}
+    )
+
+    # ------------------------------
+    # 可视化配置（在`__post_init__`中初始化）
+    # ------------------------------
+    joint_visual_config: dict = field(default_factory=dict)  # 关节绘制样式（颜色、厚度、关键点）
+    text_config: dict = field(default_factory=dict)          # 文本样式（字体、颜色）
+
+    def __post_init__(self):
+        """`dataclass`的特殊方法，在`__init__`后自动执行（初始化配置）"""
+        # 1. 确保输出目录存在（避免因目录不存在报错）
         os.makedirs(os.path.dirname(self.output_video_path), exist_ok=True)
         os.makedirs(os.path.dirname(self.output_csv_path), exist_ok=True)
-        # 可视化配置
+
+        # 2. 初始化关节绘制样式（扩展为**所有主要关节**）
         self.joint_visual_config = {
-            "elbow": {
-                "color": (0, 0, 255),  # BGR：红色（肘关节）
+            "shoulder": {  # 肩（颈→肩→肘）
+                "color": (0, 255, 0),      # 绿色
                 "thickness": 2,
-                "points": ("shoulder", "elbow", "wrist")  # 肩→肘→腕
+                "points": ("neck", "shoulder", "elbow")  # 关键点顺序（近端→关节→远端）
             },
-            "knee": {
-                "color": (255, 0, 0),  # BGR：蓝色（膝关节）
+            "elbow": {     # 肘（肩→肘→腕）
+                "color": (0, 0, 255),      # 红色（保留原颜色）
                 "thickness": 2,
-                "points": ("hip", "knee", "ankle")  # 髋→膝→踝
+                "points": ("shoulder", "elbow", "wrist")
+            },
+            "wrist": {     # 腕（肘→腕→拇指）
+                "color": (255, 0, 0),      # 蓝色
+                "thickness": 2,
+                "points": ("elbow", "wrist", "thumb")
+            },
+            "hip": {       # 髋（髋→膝→踝，暂用原逻辑）
+                "color": (255, 255, 0),    # 黄色
+                "thickness": 2,
+                "points": ("hip", "knee", "ankle")
+            },
+            "knee": {      # 膝（髋→膝→踝，保留原颜色）
+                "color": (255, 0, 255),    # 紫色
+                "thickness": 2,
+                "points": ("hip", "knee", "ankle")
+            },
+            "ankle": {     # 踝（膝→踝→脚跟）
+                "color": (0, 255, 255),    # 青色
+                "thickness": 2,
+                "points": ("knee", "ankle", "heel")
             }
         }
+
+        # 3. 初始化文本样式（修正单位，更符合用户习惯）
         self.text_config = {
             "fontFace": cv2.FONT_HERSHEY_SIMPLEX,
             "fontScale": 0.5,
-            "color": (255, 255, 255),  # 白色文本
+            "color": (255, 255, 255),  # 白色文本（对比强烈）
             "thickness": 1,
-            "lineType": cv2.LINE_AA
+            "lineType": cv2.LINE_AA    # 抗锯齿（文本更清晰）
         }
 
-    def generate_visualized_video(self, frame_data_list: List[FrameData], joint_data_list: List[JointData]):
-        """生成叠加关节连线与角度的视频"""
-        if not frame_data_list or not joint_data_list:
-            raise ValueError("原始帧或关节数据为空")
-        if len(frame_data_list) != len(joint_data_list):
-            raise ValueError("原始帧与关节数据数量不匹配")
-
-        # 从第一帧获取视频参数（分辨率、帧率）
-        first_frame = frame_data_list[0]  # 修复：取列表第一个元素
-        frame_height, frame_width = first_frame.frame.shape[:2]  # 修复：获取宽高的正确方式
-        fps = first_frame.fps
-
-        # 初始化视频写入器
-        fourcc = cv2.VideoWriter_fourcc(*app_config.video.output_video_codec)
-        video_writer = cv2.VideoWriter(
-            self.output_video_path,
-            fourcc,
-            fps,
-            (frame_width, frame_height)
-        )
-
-        # 遍历每帧，叠加可视化元素
-        for frame_data, joint_data in zip(frame_data_list, joint_data_list):
-            frame = frame_data.frame.copy()
-            self._draw_joint_lines(frame, joint_data, frame_width, frame_height)
-            self._draw_joint_angles(frame, joint_data)
-            video_writer.write(frame)
-
-        video_writer.release()
-        print(f"可视化视频已保存至：{self.output_video_path}")
-
-    def generate_joint_csv(self, joint_data_list: List[JointData]):
-        """将关节数据列表转换为CSV文件"""
+    def _draw_joint_lines(self, frame: cv2.Mat, joint_data: JointData, frame_width: int, frame_height: int):
+        """绘制所有关节连线（未选择的关节因数据为空自动跳过）"""
+        # 遍历所有关节的可视化配置（如shoulder、elbow）
+        for joint_name, config in self.joint_visual_config.items():
+            # 处理左右侧（如left_shoulder、right_shoulder）
+            for side in ["left", "right"]:
+                points = []  # 存储关节关键点的像素坐标
+                # 提取关节关键点的归一化坐标（如neck_x、left_shoulder_x）
+                for point in config["points"]:
+                    # 特殊处理无侧点（如neck，无需加left/right前缀）
+                    if point == "neck":
+                        x_field = f"{point}_x"
+                        y_field = f"{point}_y"
+                    else:
+                        x_field = f"{side}_{point}_x"
+                        y_field = f"{side}_{point}_y"
+                    # 获取坐标（未选择的关节会返回None）
+                    x = getattr(joint_data, x_field, None)
+                    y = getattr(joint_data, y_field, None)
+                    # 坐标无效（未检测到或未选择），跳过该关节
+                    if x is None or y is None:
+                        break
+                    # 转换为像素坐标（归一化→帧宽高）
+                    pixel_x = int(x * frame_width)
+                    pixel_y = int(y * frame_height)
+                    points.append((pixel_x, pixel_y))
+                # 至少2个点才能绘制连线（如颈→肩→肘需要3个点）
+                if len(points) >= 2:
+                    # 绘制连续连线（如颈→肩→肘）
+                    for i in range(len(points) - 1):
+                        cv2.line(
+                            frame, 
+                            points[i], 
+                            points[i+1], 
+                            config["color"], 
+                            config["thickness"]
+                        )
+    def _draw_joint_angles(self, frame: cv2.Mat, joint_data: JointData):
+        """绘制所有关节的角度与角速度（未选择的关节因数据为空自动跳过）"""
+        text_pos = (10, 30)  # 初始文本位置（左上角）
+        line_spacing = 20     # 行间距（像素）
+        # 定义关节显示顺序（避免重叠）
+        joint_order = ["shoulder", "elbow", "wrist", "hip", "knee", "ankle"]
+        
+        # 遍历所有关节（如shoulder、elbow）
+        for joint_name in joint_order:
+            # 处理左右侧（如left_shoulder、right_shoulder）
+            for side in ["left", "right"]:
+                # 绘制角度（如left_shoulder_angle）
+                angle_field = f"{side}_{joint_name}_angle"
+                angle = getattr(joint_data, angle_field, None)
+                if angle is not None:
+                    text = f"{side.capitalize()} {joint_name.capitalize()} Angle: {angle:.1f}°"
+                    cv2.putText(frame, text, text_pos, **self.text_config)
+                    text_pos = (text_pos[0], text_pos[1] + line_spacing)  # 下移一行
+                
+                # 绘制角速度（如left_shoulder_velocity）
+                velocity_field = f"{side}_{joint_name}_velocity"
+                velocity = getattr(joint_data, velocity_field, None)
+                if velocity is not None:
+                    text = f"{side.capitalize()} {joint_name.capitalize()} Vel: {velocity:.1f}°/s"
+                    cv2.putText(frame, text, text_pos, **self.text_config)
+                    text_pos = (text_pos[0], text_pos[1] + line_spacing)  # 下移一行
+    
+    def generate_joint_csv(self, joint_data_list: List[JointData], selected_joints: List[Dict]):
+        """生成CSV（仅包含选中关节数据）"""
         if not joint_data_list:
             raise ValueError("关节数据为空")
-        df = pd.DataFrame([asdict(jd) for jd in joint_data_list])
+        if not selected_joints:
+            raise ValueError("未选择任何关节")
+
+        # 生成字段（基础字段+选中关节字段）
+        base_fields = ["frame_idx", "timestamp", "fps"]
+        joint_fields = []
+        for joint in selected_joints:
+            side = joint["side"]
+            part = joint["part"]
+            joint_fields.extend([
+                f"{side}_{part}_x",
+                f"{side}_{part}_y",
+                f"{side}_{part}_angle",
+                f"{side}_{part}_velocity"
+            ])
+        fields = base_fields + joint_fields
+
+        # 生成DataFrame并保存
+        df = pd.DataFrame([asdict(jd) for jd in joint_data_list])[fields]
         df.to_csv(self.output_csv_path, index=False)
-        print(f"关节数据CSV已保存至：{self.output_csv_path}")
-
-    def _draw_joint_lines(self, frame: cv2.Mat, joint_data: JointData, frame_width: int, frame_height: int):
-        """在帧上绘制关节连线"""
-        # 处理肘关节（左/右）
-        for side in ["left", "right"]:
-            config = self.joint_visual_config["elbow"]
-            points = []
-            for point in config["points"]:
-                x_field = f"{side}_{point}_x"
-                y_field = f"{side}_{point}_y"
-                x = getattr(joint_data, x_field, None)
-                y = getattr(joint_data, y_field, None)
-                if x is None or y is None:
-                    break
-                pixel_x = int(x * frame_width)
-                pixel_y = int(y * frame_height)
-                points.append((pixel_x, pixel_y))
-            # 绘制连线（修复：正确连接点）
-            if len(points) == 3:
-                cv2.line(frame, points[0], points[1], config["color"], config["thickness"])  # 肩→肘
-                cv2.line(frame, points[1], points[2], config["color"], config["thickness"])  # 肘→腕
-
-        # 处理膝关节（左/右）
-        for side in ["left", "right"]:
-            config = self.joint_visual_config["knee"]
-            points = []
-            for point in config["points"]:
-                x_field = f"{side}_{point}_x"
-                y_field = f"{side}_{point}_y"
-                x = getattr(joint_data, x_field, None)
-                y = getattr(joint_data, y_field, None)
-                if x is None or y is None:
-                    break
-                pixel_x = int(x * frame_width)
-                pixel_y = int(y * frame_height)
-                points.append((pixel_x, pixel_y))
-            if len(points) == 3:
-                cv2.line(frame, points[0], points[1], config["color"], config["thickness"])  # 髋→膝
-                cv2.line(frame, points[1], points[2], config["color"], config["thickness"])  # 膝→踝
-
-    def _draw_joint_angles(self, frame: cv2.Mat, joint_data: JointData):
-        """在帧左上角绘制关节角度文本"""
-        text_pos = (10, 30)
-        line_spacing = 20
-
-        # 绘制左肘角度
-        if joint_data.left_elbow_angle is not None:
-            text = f"Left Elbow: {joint_data.left_elbow_angle:.1f}ang"
-            cv2.putText(frame, text, text_pos, **self.text_config)
-            text_pos = (text_pos[0], text_pos[1] + line_spacing) 
-
-        # 绘制右肘角度
-        if joint_data.right_elbow_angle is not None:
-            text = f"Right Elbow: {joint_data.right_elbow_angle:.1f}ang"
-            cv2.putText(frame, text, text_pos, **self.text_config)
-            text_pos = (text_pos[0], text_pos[1] + line_spacing)
-
-        # 绘制左膝角度
-        if joint_data.left_knee_angle is not None:
-            text = f"Left Knee: {joint_data.left_knee_angle:.1f}ang"
-            cv2.putText(frame, text, text_pos, **self.text_config)
-            text_pos = (text_pos[0], text_pos[1] + line_spacing)
-
-        # 绘制右膝角度
-        if joint_data.right_knee_angle is not None:
-            text = f"Right Knee: {joint_data.right_knee_angle:.1f}ang"
-            cv2.putText(frame, text, text_pos, **self.text_config)
-            text_pos = (text_pos[0], text_pos[1] + line_spacing)
-
-            # 绘制左肘角速度
-        if joint_data.left_elbow_velocity is not None:
-            # 格式化为一位小数，添加单位°/s
-            text = f"L Elbow Vel: {joint_data.left_elbow_velocity:.1f}ang/s"  
-            cv2.putText(frame, text, text_pos, **self.text_config)
-            # 更新到下一行位置
-            text_pos = (text_pos[0], text_pos[1] + line_spacing)  
-
-        # 绘制右肘角速度
-        if joint_data.right_elbow_velocity is not None:
-            text = f"R Elbow Vel: {joint_data.right_elbow_velocity:.1f}ang/s"
-            cv2.putText(frame, text, text_pos, **self.text_config)
-            text_pos = (text_pos[0], text_pos[1] + line_spacing)
-
-        # 绘制左膝角速度
-        if joint_data.left_knee_velocity is not None:
-            text = f"L Knee Vel: {joint_data.left_knee_velocity:.1f}ang/s"
-            cv2.putText(frame, text, text_pos, **self.text_config)
-            text_pos = (text_pos[0], text_pos[1] + line_spacing)
-
-        # 绘制右膝角速度
-        if joint_data.right_knee_velocity is not None:
-            text = f"R Knee Vel: {joint_data.right_knee_velocity:.1f}ang/s"
-            cv2.putText(frame, text, text_pos, **self.text_config)
-            
-    def calculate_motion_statistics(self, frame_data_list: List[FrameData], joint_data_list: List[JointData]):
-        """计算包括最大角速度在内的运动统计信息"""
+        print(f"关节数据CSV已保存至：{self.output_csv_path}（仅包含选择的关节）")
+    
+    def calculate_motion_statistics(self, frame_data_list: List[FrameData], joint_data_list: List[JointData], selected_joints: List[Dict]):
+        """计算选中关节的运动统计信息"""
         if not frame_data_list or not joint_data_list:
             return None
-        
-        # 计算运动时长（秒）
+        if not selected_joints:
+            return None
+
+        # 计算运动时长
         start_time = frame_data_list[0].timestamp
         end_time = frame_data_list[-1].timestamp
         duration = end_time - start_time
-    
-        # 初始化最大关节角速度（使用负无穷确保任何有效值都比它大）
-        max_velocities = {
-            "left_elbow": float('-inf'),
-            "right_elbow": float('-inf'),
-            "left_knee": float('-inf'),
-            "right_knee": float('-inf')
-        }
-    
-        # 遍历所有关节数据，过滤无效值（None）
+
+        # 初始化最大角速度
+        max_velocities = {}
+        for joint in selected_joints:
+            side = joint["side"]
+            part = joint["part"]
+            max_velocities[f"{side}_{part}_velocity"] = float('-inf')
+
+        # 遍历帧计算最大角速度
         for joint_data in joint_data_list:
-            # 更新左肘角速度（仅处理有效值）
-            if joint_data.left_elbow_velocity is not None:
-                if joint_data.left_elbow_velocity > max_velocities["left_elbow"]:
-                    max_velocities["left_elbow"] = joint_data.left_elbow_velocity
-            # 更新右肘角速度
-            if joint_data.right_elbow_velocity is not None:
-                if joint_data.right_elbow_velocity > max_velocities["right_elbow"]:
-                    max_velocities["right_elbow"] = joint_data.right_elbow_velocity
-            # 更新左膝角速度
-            if joint_data.left_knee_velocity is not None:
-                if joint_data.left_knee_velocity > max_velocities["left_knee"]:
-                    max_velocities["left_knee"] = joint_data.left_knee_velocity
-            # 更新右膝角速度
-            if joint_data.right_knee_velocity is not None:
-                if joint_data.right_knee_velocity > max_velocities["right_knee"]:
-                    max_velocities["right_knee"] = joint_data.right_knee_velocity
-    
-        # 处理无有效值的情况（将负无穷设为0.0，避免显示None）
-        for joint in max_velocities:
-            if max_velocities[joint] == float('-inf'):
-                max_velocities[joint] = 0.0
-    
-        # 返回统计结果（仅保留角速度，移除角度相关字段）
+            for joint in selected_joints:
+                side = joint["side"]
+                part = joint["part"]
+                velocity = getattr(joint_data, f"{side}_{part}_velocity", None)
+                if velocity is not None and velocity > max_velocities[f"{side}_{part}_velocity"]:
+                    max_velocities[f"{side}_{part}_velocity"] = velocity
+
+        # 处理无有效数据的情况
+        for key in max_velocities:
+            if max_velocities[key] == float('-inf'):
+                max_velocities[key] = 0.0
+
+        # 返回统计结果
         return {
             "duration": duration,
             "max_velocities": max_velocities
         }
-        
-    def show_results_window(self, statistics):
-        """显示结果窗口（仅显示最大关节角速度）"""
-        print("正在显示结果窗口...")
-        if not statistics:
-            print("无统计信息可显示")
+    
+    def show_results_window(self, statistics: dict, selected_joints: List[str]):
+        """显示运动分析结果窗口（仅包含用户选择的关节）"""
+        if not statistics or not selected_joints:
             return
-        try:    
-            # 创建结果窗口
+        
+        try:
+            # 创建结果窗口（调整大小以适应更多关节）
             root = tk.Tk()
             root.title("运动分析结果")
-            root.geometry("400x300")
+            root.geometry("500x400")
             root.resizable(False, False)
-        
+            
             # 设置窗口居中
             root.update_idletasks()
-            x = (root.winfo_screenwidth() // 2) - (400 // 2)
-            y = (root.winfo_screenheight() // 2) - (300 // 2)
-            root.geometry(f"400x300+{x}+{y}")
-        
+            x = (root.winfo_screenwidth() // 2) - (500 // 2)
+            y = (root.winfo_screenheight() // 2) - (400 // 2)
+            root.geometry(f"500x400+{x}+{y}")
+            
             # 添加标题
             title_label = tk.Label(root, text="运动分析结果", font=("Arial", 16, "bold"))
             title_label.pack(pady=20)
-        
-            # 添加运动时长（保留，用户可能需要）
+            
+            # 添加运动时长（必显示）
             duration_label = tk.Label(
                 root, 
                 text=f"运动时长: {statistics['duration']:.2f} 秒", 
                 font=("Arial", 14)
             )
             duration_label.pack(pady=10)
-        
-            # ==================== 新增：最大关节角速度显示 ====================
-            # 添加角速度标题
+            
+            # 添加最大角速度标题
             velocity_title = tk.Label(
                 root, 
                 text="最大关节角速度", 
                 font=("Arial", 12, "bold")
             )
-            velocity_title.pack(pady=(20, 10))  # 顶部间距20，底部间距10
-        
-            # 创建框架用于布局角速度数据（两行两列）
+            velocity_title.pack(pady=(20, 10))
+            
+            # 创建框架（网格布局，每行显示左右侧关节）
             velocity_frame = tk.Frame(root)
             velocity_frame.pack(pady=10)
-        
-            # 获取最大角速度数据（默认空字典，避免KeyError）
-            max_velocities = statistics.get("max_velocities", {})
-        
-            # 添加左肘角速度（第一行第一列）
-            left_elbow_vel = tk.Label(
-                velocity_frame,
-                text=f"左肘: {max_velocities.get('left_elbow', 0.0):.1f} °/s",
-                font=("Arial", 11)
-            )
-            left_elbow_vel.grid(row=0, column=0, padx=10, pady=5, sticky="w")
-        
-            # 添加右肘角速度（第一行第二列）
-            right_elbow_vel = tk.Label(
-                velocity_frame,
-                text=f"右肘: {max_velocities.get('right_elbow', 0.0):.1f} °/s",
-                font=("Arial", 11)
-            )
-            right_elbow_vel.grid(row=0, column=1, padx=10, pady=5, sticky="w")
-        
-            # 添加左膝角速度（第二行第一列）
-            left_knee_vel = tk.Label(
-                velocity_frame,
-                text=f"左膝: {max_velocities.get('left_knee', 0.0):.1f} °/s",
-                font=("Arial", 11)
-            )
-            left_knee_vel.grid(row=1, column=0, padx=10, pady=5, sticky="w")
-        
-            # 添加右膝角速度（第二行第二列）
-            right_knee_vel = tk.Label(
-                velocity_frame,
-                text=f"右膝: {max_velocities.get('right_knee', 0.0):.1f} °/s",
-                font=("Arial", 11)
-            )
-            right_knee_vel.grid(row=1, column=1, padx=10, pady=5, sticky="w")
-            # =============================================================
-        
-            # 添加确定按钮（保持不变）
+            
+            # 遍历选择的关节，显示左右侧的最大角速度
+            row = 0
+            for joint in selected_joints:
+                # 左侧关节（如left_shoulder）
+                left_key = f"left_{joint}"
+                left_value = statistics["max_velocities"].get(left_key, 0.0)
+                left_label = tk.Label(
+                    velocity_frame,
+                    text=f"左{joint}：{left_value:.1f} °/s",
+                    font=("Arial", 11)
+                )
+                left_label.grid(row=row, column=0, padx=10, pady=5, sticky="w")
+                
+                # 右侧关节（如right_shoulder）
+                right_key = f"right_{joint}"
+                right_value = statistics["max_velocities"].get(right_key, 0.0)
+                right_label = tk.Label(
+                    velocity_frame,
+                    text=f"右{joint}：{right_value:.1f} °/s",
+                    font=("Arial", 11)
+                )
+                right_label.grid(row=row, column=1, padx=10, pady=5, sticky="w")
+                
+                # 换行（处理下一个关节）
+                row += 1
+            
+            # 添加确定按钮（关闭窗口）
             ok_button = tk.Button(root, text="确定", command=root.destroy, width=10, height=2)
             ok_button.pack(pady=20)
-        
-            print("结果窗口已创建，开始主循环")
+            
+            # 启动窗口主循环（阻塞主线程，直到关闭）
             root.mainloop()
-            print("结果窗口已关闭")
-        
+            
         except Exception as e:
             print(f"显示结果窗口时出错: {str(e)}")
             import traceback
             traceback.print_exc()
-            
-    def generate_output(self, frame_data_list: List[FrameData], joint_data_list: List[JointData]):
-        """生成所有输出(可视化视频+CSV表格)"""
-        print("开始生成输出...")
+
+    def generate_output(self, frame_data_list: List[FrameData], joint_data_list: List[JointData], selected_joints: List[Dict]):
+        """生成所有输出（可视化视频+CSV+结果窗口）"""
         try:
             self.generate_visualized_video(frame_data_list, joint_data_list)
-            self.generate_joint_csv(joint_data_list)
-            print("所有输出生成完成！")
-            
-            # 计算统计信息并显示结果窗口
-            statistics = self.calculate_motion_statistics(frame_data_list, joint_data_list)
-            print(f"统计信息: {statistics}")  # 调试信息
-        
+            self.generate_joint_csv(joint_data_list, selected_joints)  # 传递选中关节
+            statistics = self.calculate_motion_statistics(frame_data_list, joint_data_list, selected_joints)  # 传递选中关节
             if statistics:
-                print("准备显示结果窗口...")
-                # 直接显示结果窗口（阻塞主线程，直到窗口关闭）
-                self.show_results_window(statistics)
-            else:
-                print("无统计信息可显示")
+                self.show_results_window(statistics, selected_joints)
             print("所有输出生成完成！")
         except Exception as e:
             print(f"输出生成失败：{str(e)}")
-            import traceback
-            traceback.print_exc()
-            
-            raise  # 重新抛出异常，让上层处理
+            raise

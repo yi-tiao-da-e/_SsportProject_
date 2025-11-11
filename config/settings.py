@@ -24,3 +24,10 @@ class AppConfig:
 
 # 实例化全局配置（供其他模块导入）
 app_config = AppConfig()
+
+class VideoConfig:
+    output_video_path: str = "output/analysis_video.mp4"
+    output_3d_video_path: str = "output/3d_skeleton.mp4"
+    output_csv_path: str = "output/joint_data.csv"
+    output_video_codec: str = "mp4v"
+    enable_3d_output: bool = True  # 控制是否生成3D输出

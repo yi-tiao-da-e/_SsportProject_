@@ -1,0 +1,55 @@
+{
+  "analysis_summary": {
+    "total_frames": 254,
+    "duration_seconds": 8.433333333333334,
+    "analysis_timestamp": "2025-10-30T11:54:49.624161",
+    "data_quality_notes": {
+      "stability": "稳定性数据可能未正确计算（所有值均为0.5）",
+      "joint_loads": "检测到508/508个负关节载荷，可能需要检查计算方向"
+    }
+  },
+  "statistics": {
+    "max_angles": {
+      "left_knee": 180.0,
+      "right_knee": 180.0
+    },
+    "min_angles": {
+      "left_knee": 179.99999879258172,
+      "right_knee": 179.99999879258172
+    },
+    "avg_angles": {
+      "left_knee": 179.9999997921753,
+      "right_knee": 179.99999983308777
+    },
+    "max_loads": {
+      "left_knee": 1172.4146341463413,
+      "right_knee": 1172.4146341463413
+    },
+    "avg_loads": {
+      "left_knee": -1172.4147543307652,
+      "right_knee": -1172.4147231864238
+    },
+    "motion_smoothness": 0.9999994526074009,
+    "notes": "注意: right_knee载荷已取绝对值显示"
+  },
+  "movement_quality": {
+    "stability": 0.8,
+    "symmetry": 0.7,
+    "smoothness": 0.6,
+    "efficiency": 0.75
+  },
+  "risk_assessment": {
+    "knee": "低风险",
+    "spine": "低风险"
+  },
+  "key_metrics": {
+    "average_stability": 0.5,
+    "stability_quality": "需要检查",
+    "knee_angle_range": [
+      180.0,
+      180.0
+    ],
+    "max_knee_load": 1172.4,
+    "movement_smoothness": 0.9999994526074009
+  }
+}
